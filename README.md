@@ -1,68 +1,59 @@
-# Sekura PasteGuard 🛡️
-A lightweight Windows utility that protects you from clipboard-based attacks and tracking.
+# Sekura PasteGuard
 
-## What is it?
-PasteGuard runs silently in your system tray and monitors your clipboard in real time.
-
-It does two things:
-
-**1. ClickFix Protection**
-Attackers use fake CAPTCHAs and error pages to trick you into copying and running malicious commands. The moment PasteGuard detects a shell command in your clipboard, it warns you before you can paste and run it.
-
-**2. Tracking Parameter Removal**
-When you copy a link from Amazon, Facebook, TikTok, LinkedIn, and others, they attach tracking parameters to spy on your clicks. PasteGuard strips them instantly so you always paste a clean URL.
+A small Windows tray app that watches your clipboard for two things. Shell commands that look like ClickFix payloads, and tracking parameters on URLs.
 
 ## Download
-[**Download the latest installer here**](https://github.com/mkultraware/Clipboard-Defanger/releases)
 
-## ✨ Features
-- **ClickFix Detection:** Warns you when a Windows shell command is copied, with Clear Clipboard, Copy Anyway, and Trust This Session options
-- **Session Whitelist:** Trust a pattern for the current session — no more repeated warnings for the same trigger
-- **Silent Mode:** Kills command payloads instantly without prompting — toggle from the tray, no source editing required
-- **Notifications:** Tray notifications on URL cleans, toggleable from the tray menu
-- **Tracking Removal:** Strips 20+ tracking parameters including UTM, fbclid, ttclid, LinkedIn trk, msclkid, and more
-- **Stats:** Blocked threats and cleaned URLs shown in the tray menu, persisted across restarts
-- **Persistent Settings:** Silent Mode and notification preferences survive restarts
-- **System Theme:** Dialog follows Windows light/dark mode automatically
-- **Zero-Click:** Works automatically in the background
-- **Lightweight:** Uses minimal RAM (<20MB)
-- **Auto-Start:** Runs on Windows startup via the installer
+[Get the latest installer from the releases page](https://github.com/mkultraware/Clipboard-Defanger/releases).
 
-## 🔍 What Commands Does It Detect?
-PasteGuard uses a two-tier detection engine to catch real payloads while ignoring tool names in normal text.
+## What it does
 
-**Tier 1 — unambiguous patterns (fire standalone):**
-`powershell -flag`, `cmd /c`, `Invoke-WebRequest`, `Invoke-RestMethod`, `iex`, `Invoke-Expression`, `DownloadString`, `DownloadFile`, `curl https://`, `reg add HKEY`, `bash -c "..."`, base64 payloads adjacent to known executors, dynamic invocation `& ($var)`
+**ClickFix protection.** Attackers fake CAPTCHAs and error pages to get you to copy and run a command. PasteGuard watches the clipboard, and when it sees a shell command, it warns you before you can paste it into a terminal.
 
-**Tier 2 — tool name + shell signal required:**
-`mshta`, `msiexec`, `rundll32`, `certutil`, `wscript`, `cscript`, `wmic`, `regsvr32`, `bitsadmin`, `schtasks` — only trigger when followed by a flag, URL, operator, variable, or payload file extension.
+**Tracking removal.** When you copy a link from Amazon, Facebook, TikTok, LinkedIn, or Google, it comes with tracking parameters. PasteGuard strips them so you paste a clean URL.
 
-## 🛠️ How to Run from Source (Python)
-1. Clone the repo
-2. Install dependencies:
+## Detection
+
+Two tiers, so it catches real payloads without flagging prose.
+
+Tier 1 patterns fire on their own: `cmd /c`, `powershell -flag`, `iex`, `Invoke-WebRequest`, `DownloadString`, `curl https://`, `reg add HKEY`, base64 payloads next to a known executor, and dynamic invocation like `& ($var)`.
+
+Tier 2 needs a tool name plus a shell signal. `mshta`, `rundll32`, `certutil`, `wmic`, and friends only trigger when followed by a flag, URL, pipe, or script extension. So "I read a blog post about mshta and rundll32 today" passes through clean.
+
+## SmartScreen
+
+The installer is not code-signed. If you download it from the releases page, Windows SmartScreen will show a "Windows protected your PC" warning. That is expected for an unsigned build. Click "More info" then "Run" to continue.
+
+![SmartScreen warning](SmartScreen.png)
+
+## Building
+
+The repo ships source, not binaries. To build the exe and installer:
+
+1. Install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+2. Run `build.ps1`
+
+That creates a venv, installs dependencies, builds `dist\PasteGuard.exe` with PyInstaller, and compiles the installer to `installer_output\`. To swap the app icon, drop a new PNG in as `new-icon.png` and re-run. The script converts it to the `.ico` automatically.
+
+## Running from source
+
 ```
 pip install pywin32 pystray Pillow
-```
-3. Run:
-```
 python clipboard_defanger.py
 ```
 
-## ⚙️ Tray Menu
-Right-click the tray icon to access:
-- **Stats** — threats blocked and URLs cleaned since install
-- **Silent Mode** — toggle payload killing without a dialog
-- **Notifications** — toggle tray notifications on URL cleans
-- **View Log** — opens `~/pasteguard.log` directly
-- **Quit**
+## Tray menu
 
-## License & Pricing
-**Personal Use:** Free for personal, non-commercial use on your own devices.
+Right-click the tray icon:
 
-**Commercial Use:** Use in a commercial environment (business, enterprise, or government) requires a paid license.
-📧 [Contact us for a quote](mailto:founder@sekura.se)
+- Stats. Threats blocked and URLs cleaned, persisted across restarts.
+- Silent mode. Kills command payloads without a dialog.
+- Notifications. Toggle the tray popup on URL cleans.
+- View log. Opens `~/pasteguard.log`.
+- Quit.
 
-**Redistribution:** You may not sell or repackage this software without explicit permission.
+## License
 
----
-*A [Sekura](https://sekura.se) product.*
+Personal use is free. Commercial use (business, enterprise, government) requires a paid license. Contact founder@sekura.se for a quote. You may not sell or repackage this software without permission.
+
+A [Sekura](https://sekura.se) product.
