@@ -4,7 +4,7 @@ A small Windows tray app that watches your clipboard for two things. Shell comma
 
 ## Download
 
-[Get the latest installer from the releases page](https://github.com/mkultraware/Clipboard-Defanger/releases).
+[Get the latest installer from the releases page](https://github.com/mkultraware/PasteGuard/releases).
 
 ## What it does
 
