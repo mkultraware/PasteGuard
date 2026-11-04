@@ -8,7 +8,7 @@ import os
 import sys
 import ctypes
 import ctypes.wintypes
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, unquote, urlunparse
 import win32clipboard
 import win32con
 import win32gui
@@ -134,16 +134,28 @@ def detect_command(text):
 # --- URL cleaning ---
 
 def clean_url(text):
+    """Returns (cleaned_url, removed_params) if tracking params were removed, else None.
+    Non-tracking query segments are kept verbatim so their encoding is preserved."""
     text = text.strip()
     if not (text.startswith("http://") or text.startswith("https://")):
         return None
     try:
         parsed = urlparse(text)
-        params = parse_qs(parsed.query, keep_blank_values=True)
-        cleaned_params = {k: v for k, v in params.items() if k not in TRACKING_PARAMS_SET}
-        new_query = urlencode(cleaned_params, doseq=True)
-        cleaned = urlunparse(parsed._replace(query=new_query))
-        return cleaned if cleaned != text else None
+        if not parsed.query:
+            return None
+        kept, removed = [], set()
+        for segment in parsed.query.split("&"):
+            if not segment:
+                continue
+            key = unquote(segment.split("=", 1)[0])
+            if key in TRACKING_PARAMS_SET:
+                removed.add(key)
+            else:
+                kept.append(segment)
+        if not removed:
+            return None
+        cleaned = urlunparse(parsed._replace(query="&".join(kept)))
+        return cleaned, sorted(removed)
     except Exception:
         return None
 
@@ -383,43 +395,47 @@ def process_clipboard(text):
     is_cmd, label = detect_command(text)
 
     if is_cmd:
-        if label in state["whitelist"]:
-            log(f"Whitelisted pattern skipped [{label}]")
+        if text in state["whitelist"]:
+            log(f"Whitelisted payload skipped [{label}]")
             return
 
         log(f"Command detected [{label}]: {text[:100]!r}")
 
         if state["silent_mode"]:
-            clear_clipboard()
-            state["recent_value"] = ""
-            state["stats"]["blocked"] += 1
-            save_config()
-            update_tray_menu()
-            log("Silently cleared.")
-        else:
-            action = show_warning_dialog(text, label)
-            if action == "cancel":
+            if get_clipboard_text() == text:
                 clear_clipboard()
                 state["recent_value"] = ""
                 state["stats"]["blocked"] += 1
                 save_config()
                 update_tray_menu()
-                log("User cancelled. Clipboard cleared.")
+                log("Silently cleared.")
+        else:
+            action = show_warning_dialog(text, label)
+            if action == "cancel":
+                if get_clipboard_text() == text:
+                    clear_clipboard()
+                    state["recent_value"] = ""
+                    state["stats"]["blocked"] += 1
+                    save_config()
+                    update_tray_menu()
+                    log("User cancelled. Clipboard cleared.")
             elif action == "whitelist":
-                state["whitelist"].add(label)
-                log(f"Pattern whitelisted for session: {label}")
+                state["whitelist"].add(text)
+                log(f"Payload whitelisted for session [{label}]")
             else:
                 log("User chose to keep command in clipboard.")
     else:
-        cleaned = clean_url(text)
-        if cleaned:
-            set_clipboard_text(cleaned)
-            state["recent_value"] = cleaned
-            state["stats"]["cleaned"] += 1
-            save_config()
-            update_tray_menu()
-            log(f"URL cleaned -> {cleaned}")
-            notify_tray("URL Cleaned", "Tracking parameters removed.")
+        result = clean_url(text)
+        if result:
+            cleaned, removed = result
+            if get_clipboard_text() == text:
+                set_clipboard_text(cleaned)
+                state["recent_value"] = cleaned
+                state["stats"]["cleaned"] += 1
+                save_config()
+                update_tray_menu()
+                log(f"URL cleaned -> {cleaned} (removed: {', '.join(removed)})")
+                notify_tray("URL Cleaned", "Tracking parameters removed.")
 
 # --- Clipboard listener (event-driven via WM_CLIPBOARDUPDATE) ---
 
