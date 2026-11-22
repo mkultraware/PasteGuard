@@ -2,7 +2,7 @@
 #
 # Usage:  .\build.ps1
 # Output: dist\PasteGuard.exe
-#         installer_output\SekuraPasteGuard_Setup_v2.4.0.exe
+#         installer_output\SekuraPasteGuard_Setup_v2.5.0.exe
 #
 # To change the app icon, drop a new PNG in the repo as new-icon.png and
 # re-run this script - it is converted to clipboard-x.512.ico automatically

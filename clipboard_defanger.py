@@ -15,7 +15,7 @@ import win32con
 import win32gui
 import win32api
 import pystray
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageTk, ImageFont
 
 APP_NAME    = "Sekura PasteGuard"
 LOG_FILE    = os.path.join(os.path.expanduser("~"), "pasteguard.log")
@@ -406,77 +406,168 @@ def show_warning_dialog(payload_text, trigger_label):
 
 # --- Settings window ---
 
-def _settings_colors():
-    if is_dark_mode():
-        return {
-            "bg":        "#1c1c1e",
-            "surface":   "#2c2c2e",
-            "text_pri":  "#ffffff",
-            "text_sec":  "#ababab",
-            "text_dim":  "#636366",
-            "border":    "#3a3a3c",
-            "accent":    "#f0a500",
-            "track_off": "#39393d",
-            "btn":       "#3a3a3c",
-            "btn_fg":    "#ffffff",
-            "danger":    "#c0392b",
-        }
-    return {
-        "bg":        "#f2f2f7",
-        "surface":   "#ffffff",
-        "text_pri":  "#000000",
-        "text_sec":  "#3c3c43",
-        "text_dim":  "#8e8e93",
-        "border":    "#d1d1d6",
-        "accent":    "#c07800",
-        "track_off": "#e0e0e5",
-        "btn":       "#e5e5ea",
-        "btn_fg":    "#000000",
-        "danger":    "#c0392b",
-    }
+SETTINGS_BG      = "#060609"   # canvas base (fallback before gradient paints)
+SETTINGS_SURFACE = "#1b1b22"
+SETTINGS_PILL    = "#26262e"
+SETTINGS_BORDER  = "#2b2b35"
+SETTINGS_TEXT    = "#f5f5f8"
+SETTINGS_SUB     = "#a9a9b8"
+SETTINGS_DIM     = "#6e6e7d"
+SETTINGS_LAV     = "#b8a9ff"
+SETTINGS_BLUE    = "#2e7dff"
 
-def _hex(color):
-    color = color.lstrip("#")
-    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+_RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
+_FONT_CACHE = {}
 
-def _toggle_image(on, colors):
-    """Render the pill switch with PIL at 4x and downscale, so the edges
-    are antialiased (Tk canvas ovals are not)."""
+def _settings_hex(c):
+    c = c.lstrip("#")
+    return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+
+def _pil_font(px, bold=False):
+    key = (px, bold)
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+    names = (["segoeuib.ttf", "segoeui.ttf", "arialbd.ttf", "arial.ttf"] if bold
+             else ["segoeui.ttf", "segoeuil.ttf", "arial.ttf"])
+    font = None
+    for name in names:
+        try:
+            font = ImageFont.truetype(name, px)
+            break
+        except Exception:
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+    _FONT_CACHE[key] = font
+    return font
+
+def _icon_image(kind, size=24, color=SETTINGS_LAV):
+    """Flat monochrome icon, PIL-rendered at 4x and downscaled."""
     scale = 4
-    w, h = 44 * scale, 24 * scale
+    w = h = size * scale
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     dc = ImageDraw.Draw(img)
-    fill = _hex("#34c759") if on else _hex(colors["track_off"])
+    rgb = _settings_hex(color)
+    lw = max(3, int(scale * 2.5))
+
+    if kind == "logo":
+        # Rounded square (lavender) with a white clipboard check
+        dc.rounded_rectangle((w*0.10, h*0.10, w*0.90, h*0.90), radius=w*0.24,
+                             fill=_settings_hex(SETTINGS_LAV) + (255,))
+        dc.line((w*0.32, h*0.50, w*0.46, h*0.66), fill=_settings_hex(SETTINGS_BG), width=lw)
+        dc.line((w*0.46, h*0.66, w*0.70, h*0.36), fill=_settings_hex(SETTINGS_BG), width=lw)
+    elif kind == "bell":
+        dome = (w*0.24, h*0.14, w*0.76, h*0.72)
+        dc.arc(dome, 180, 360, fill=rgb, width=lw)
+        dc.line((w*0.24, h*0.48, w*0.76, h*0.48), fill=rgb, width=lw)
+        dc.ellipse((w*0.44, h*0.66, w*0.56, h*0.78), fill=rgb)
+    elif kind == "bell_dot":
+        dome = (w*0.22, h*0.16, w*0.72, h*0.72)
+        dc.arc(dome, 180, 360, fill=rgb, width=lw)
+        dc.line((w*0.22, h*0.48, w*0.72, h*0.48), fill=rgb, width=lw)
+        dc.ellipse((w*0.40, h*0.68, w*0.52, h*0.80), fill=rgb)
+        dc.ellipse((w*0.70, h*0.16, w*0.88, h*0.34), fill=rgb)
+    elif kind == "windows":
+        gap, cell = w*0.06, (w - w*0.06) / 2
+        for i in range(2):
+            for j in range(2):
+                x0 = i * (cell + gap)
+                y0 = j * (cell + gap)
+                dc.rounded_rectangle((x0, y0, x0 + cell, y0 + cell), radius=scale, fill=rgb)
+    elif kind == "chart":
+        base = h * 0.86
+        heights = [h*0.32, h*0.54, h*0.76]
+        xs = [w*0.16, w*0.42, w*0.68]
+        for x, hh in zip(xs, heights):
+            dc.rounded_rectangle((x, base - hh, x + w*0.16, base), radius=scale, fill=rgb)
+    elif kind == "check":
+        dc.ellipse((w*0.12, h*0.12, w*0.88, h*0.88), outline=rgb, width=lw)
+        dc.line((w*0.30, h*0.50, w*0.44, h*0.66), fill=rgb, width=lw)
+        dc.line((w*0.44, h*0.66, w*0.72, h*0.34), fill=rgb, width=lw)
+    elif kind == "doc":
+        dc.rounded_rectangle((w*0.26, h*0.14, w*0.74, h*0.86), radius=scale, outline=rgb, width=lw//2 + 2)
+        dc.line((w*0.38, h*0.44, w*0.62, h*0.44), fill=rgb, width=max(2, lw // 2))
+        dc.line((w*0.38, h*0.60, w*0.62, h*0.60), fill=rgb, width=max(2, lw // 2))
+    elif kind == "exit":
+        dc.line((w*0.44, h*0.18, w*0.44, h*0.82), fill=rgb, width=lw)
+        dc.line((w*0.44, h*0.50, w*0.84, h*0.50), fill=rgb, width=lw)
+        dc.line((w*0.68, h*0.34, w*0.86, h*0.50), fill=rgb, width=lw)
+        dc.line((w*0.86, h*0.50, w*0.68, h*0.66), fill=rgb, width=lw)
+    elif kind == "minimize":
+        dc.line((w*0.26, h*0.50, w*0.74, h*0.50), fill=rgb, width=lw)
+    elif kind == "close":
+        dc.line((w*0.30, h*0.30, w*0.70, h*0.70), fill=rgb, width=lw)
+        dc.line((w*0.70, h*0.30, w*0.30, h*0.70), fill=rgb, width=lw)
+
+    return img.resize((size, size), _RESAMPLE)
+
+def _pill_image(text, fill, text_color="#ffffff", height=40, bold=False,
+                icon_kind=None, icon_color=None):
+    scale = 2
+    font = _pil_font(15 * scale, bold)
+    icon = None
+    if icon_kind:
+        icon = _icon_image(icon_kind, 17 * scale, icon_color or text_color)
+    bb = font.getbbox(text)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    pad_x = 20 * scale
+    icon_w = (17 * scale + 9 * scale) if icon_kind else 0
+    w = pad_x * 2 + icon_w + tw
+    h = height * scale
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dc = ImageDraw.Draw(img)
+    dc.rounded_rectangle((0, 0, w - 1, h - 1), radius=h // 2, fill=_settings_hex(fill) + (255,))
+    x = pad_x
+    if icon:
+        img.paste(icon, (x, (h - 17 * scale) // 2), icon)
+        x += 17 * scale + 9 * scale
+    dc.text((x, (h - th) // 2 - bb[1]), text, font=font, fill=_settings_hex(text_color))
+    return img.resize((w // scale, h // scale), _RESAMPLE)
+
+def _toggle_image(on):
+    """Render the pill switch with PIL at 4x and downscale, so edges
+    are antialiased (Tk canvas ovals are not)."""
+    scale = 4
+    w, h = 52 * scale, 28 * scale
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dc = ImageDraw.Draw(img)
+    fill = _settings_hex(SETTINGS_BLUE) if on else _settings_hex(SETTINGS_PILL)
     dc.rounded_rectangle((0, 0, w - 1, h - 1), radius=h // 2, fill=fill + (255,))
     knob = h - 4 * scale
     x0 = (w - knob - 2 * scale) if on else (2 * scale)
     dc.ellipse((x0, 2 * scale, x0 + knob, 2 * scale + knob), fill=(255, 255, 255, 255))
-    resample = getattr(Image, "Resampling", Image).LANCZOS
-    return img.resize((44, 24), resample)
+    return img.resize((52, 28), _RESAMPLE)
 
-class _Toggle(tk.Label):
-    """macOS-style pill switch, PIL-rendered for smooth edges."""
-    def __init__(self, parent, on, on_toggle, colors):
-        super().__init__(parent, bg=colors["bg"], cursor="hand2")
-        self.on = on
-        self.on_toggle = on_toggle
-        self.colors = colors
-        self._img_on  = ImageTk.PhotoImage(_toggle_image(True, colors))
-        self._img_off = ImageTk.PhotoImage(_toggle_image(False, colors))
-        self._show()
-        self.bind("<Button-1>", lambda e: self.set(not self.on))
+def _gradient_image(w, h):
+    """Vertical black-to-dark-grey gradient."""
+    top = (5, 5, 9)
+    bottom = (33, 33, 40)
+    img = Image.new("RGB", (w, h))
+    px = img.load()
+    for y in range(h):
+        t = y / (h - 1)
+        r = round(top[0] + (bottom[0] - top[0]) * t)
+        g = round(top[1] + (bottom[1] - top[1]) * t)
+        b = round(top[2] + (bottom[2] - top[2]) * t)
+        for x in range(w):
+            px[x, y] = (r, g, b)
+    return img
 
-    def set(self, value):
-        self.on = value
-        self._show()
-        self.on_toggle(value)
-
-    def _show(self):
-        self.configure(image=self._img_on if self.on else self._img_off)
+def _card_image(w, h):
+    """Rounded stats card, rendered at 2x for antialiasing."""
+    scale = 2
+    img = Image.new("RGBA", (w * scale, h * scale), (0, 0, 0, 0))
+    dc = ImageDraw.Draw(img)
+    dc.rounded_rectangle((0, 0, w * scale - 1, h * scale - 1),
+                         radius=13 * scale,
+                         fill=_settings_hex(SETTINGS_SURFACE) + (255,))
+    dc.rounded_rectangle((0, 0, w * scale - 1, h * scale - 1),
+                         radius=13 * scale,
+                         outline=_settings_hex(SETTINGS_BORDER),
+                         width=scale)
+    return img.resize((w, h), _RESAMPLE)
 
 def _settings_window():
-    c = _settings_colors()
-
     # Flash fix: invisible root, never shown
     root = tk.Tk()
     root.geometry("0x0+0+0")
@@ -485,46 +576,115 @@ def _settings_window():
 
     win = tk.Toplevel(root)
     win.title("PasteGuard Settings")
-    win.geometry("480x460")
+    win.overrideredirect(True)
     win.resizable(False, False)
     win.attributes("-topmost", True)
-    win.configure(bg=c["bg"])
+    win.configure(bg=SETTINGS_BG)
 
+    WIN_W, WIN_H = 500, 500
+    win.geometry(f"{WIN_W}x{WIN_H}")
     win.update_idletasks()
-    x = (win.winfo_screenwidth()  // 2) - 240
-    y = (win.winfo_screenheight() // 2) - 230
+    x = (win.winfo_screenwidth()  // 2) - WIN_W // 2
+    y = (win.winfo_screenheight() // 2) - WIN_H // 2
     win.geometry(f"+{x}+{y}")
-
-    # Apply Windows 11 rounded corners
     win.update()
     hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
     if hwnd == 0:
         hwnd = win.winfo_id()
     apply_rounded_corners(hwnd)
 
-    # Header
-    header = tk.Frame(win, bg=c["bg"])
-    header.pack(fill="x", padx=24, pady=(20, 0))
-    tk.Label(header, text="Settings",
-             font=("Segoe UI", 13, "bold"), fg=c["text_pri"], bg=c["bg"],
-             anchor="w").pack(side="left")
-    tk.Button(header, text="Close", command=win.destroy,
-              font=("Segoe UI", 9), bg=c["btn"], fg=c["btn_fg"],
-              activebackground=c["border"], activeforeground=c["btn_fg"],
-              relief="flat", padx=14, pady=4, bd=0, cursor="hand2").pack(side="right")
+    photos = []
 
-    tk.Frame(win, height=1, bg=c["border"]).pack(fill="x", padx=24, pady=(14, 0))
+    def photo(img):
+        p = ImageTk.PhotoImage(img)
+        photos.append(p)
+        return p
 
-    def section(title):
-        tk.Label(win, text=title, font=("Segoe UI", 9), fg=c["text_dim"],
-                 bg=c["bg"], anchor="w").pack(fill="x", padx=24, pady=(16, 4))
+    def close_win():
+        win.destroy()
 
-    def row(label, on, on_toggle):
-        r = tk.Frame(win, bg=c["bg"])
-        r.pack(fill="x", padx=24, pady=5)
-        tk.Label(r, text=label, font=("Segoe UI", 10), fg=c["text_pri"],
-                 bg=c["bg"], anchor="w").pack(side="left")
-        _Toggle(r, on, on_toggle, c).pack(side="right")
+    def minimize_win():
+        # Override-redirect windows can't be iconified (iconify raises TclError
+        # on them). Minimize hides the window; the app keeps running in the
+        # tray, and Settings can be re-opened from the tray's Settings menu.
+        win.withdraw()
+        win.destroy()
+
+    canvas = tk.Canvas(win, width=WIN_W, height=WIN_H, bg=SETTINGS_BG,
+                       highlightthickness=0, bd=0, cursor="arrow")
+    canvas.pack(fill="both", expand=True)
+    canvas.create_image(0, 0, anchor="nw",
+                        image=photo(_gradient_image(WIN_W, WIN_H)))
+
+    # ---- Title bar ----
+    canvas.create_image(16, 14, anchor="nw",
+                        image=photo(_icon_image("logo", 22, SETTINGS_LAV)))
+    canvas.create_text(46, 19, text="PasteGuard Settings", fill="#e8e8ee",
+                       font=("Segoe UI", 10, "bold"), anchor="nw")
+
+    def title_button(kind, x, y, size, color, cmd):
+        item = canvas.create_image(x, y, anchor="nw",
+                                   image=photo(_icon_image(kind, size, color)),
+                                   tags=("tb_btn",))
+        canvas.tag_bind(item, "<Button-1>", lambda e: cmd())
+        canvas.tag_bind(item, "<Enter>", lambda e: canvas.configure(cursor="hand2"))
+        canvas.tag_bind(item, "<Leave>", lambda e: canvas.configure(cursor=""))
+
+    title_button("minimize", 424, 17, 15, SETTINGS_DIM, minimize_win)
+    title_button("close", 458, 17, 15, "#ff6b6b", close_win)
+
+    # ---- Header ----
+    canvas.create_text(28, 52, text="Settings", fill="#ffffff",
+                       font=("Segoe UI", 22, "bold"), anchor="nw")
+
+    def pill(x, y, text, fill, command, icon_kind=None, icon_color=None,
+             bold=False, height=34, text_color="#ffffff"):
+        img = _pill_image(text, fill, text_color, height=height, bold=bold,
+                          icon_kind=icon_kind, icon_color=icon_color)
+        item = canvas.create_image(x, y, anchor="nw", image=photo(img),
+                                   tags=("pill",))
+        canvas.tag_bind(item, "<Button-1>", lambda e: command())
+        canvas.tag_bind(item, "<Enter>", lambda e: canvas.configure(cursor="hand2"))
+        canvas.tag_bind(item, "<Leave>", lambda e: canvas.configure(cursor=""))
+
+        return img.size
+
+    close_w = _pill_image("Close", SETTINGS_PILL, "#ffffff", height=34).size[0]
+    pill(WIN_W - 28 - close_w, 54, "Close", SETTINGS_PILL, close_win, height=34)
+
+    # ---- Sections / rows ----
+    def section(y, title):
+        canvas.create_rectangle(28, y + 3, 31, y + 19, fill=SETTINGS_LAV,
+                                outline=SETTINGS_LAV)
+        canvas.create_text(42, y, text=title, fill=SETTINGS_LAV,
+                           font=("Segoe UI", 11, "bold"), anchor="nw")
+
+    def toggle(x, y, on, on_toggle):
+        st = {"on": on, "item": None}
+
+        def draw():
+            if st["item"] is not None:
+                canvas.delete(st["item"])
+            st["item"] = canvas.create_image(x, y, anchor="nw",
+                                              image=photo(_toggle_image(st["on"])),
+                                              tags=("toggle",))
+            canvas.tag_bind(st["item"], "<Button-1>", lambda e: fire())
+            canvas.tag_bind(st["item"], "<Enter>", lambda e: canvas.configure(cursor="hand2"))
+            canvas.tag_bind(st["item"], "<Leave>", lambda e: canvas.configure(cursor=""))
+
+        def fire():
+            st["on"] = not st["on"]
+            draw()
+            on_toggle(st["on"])
+
+        draw()
+
+    def row(y, icon_kind, label, on, on_toggle):
+        canvas.create_image(28, y, anchor="nw",
+                            image=photo(_icon_image(icon_kind, 22, SETTINGS_LAV)))
+        canvas.create_text(62, y + 4, text=label, fill=SETTINGS_TEXT,
+                           font=("Segoe UI", 11), anchor="nw")
+        toggle(WIN_W - 28 - 52, y + 1, on, on_toggle)
 
     def set_silent(v):
         state["silent_mode"] = v
@@ -540,35 +700,38 @@ def _settings_window():
         set_startup_enabled(v)
         log(f"Startup: {'ON' if v else 'OFF'}")
 
-    section("Behavior")
-    row("Silent Mode", state["silent_mode"], set_silent)
-    row("Notifications", state["notifications"], set_notifications)
+    section(104, "Behavior")
+    row(140, "bell", "Silent Mode", state["silent_mode"], set_silent)
+    row(184, "bell_dot", "Notifications", state["notifications"], set_notifications)
 
-    section("Startup")
-    row("Start with Windows", startup_enabled(), set_startup)
+    section(234, "Startup")
+    row(276, "windows", "Start with Windows", startup_enabled(), set_startup)
 
-    section("Stats")
-    stats = tk.Frame(win, bg=c["bg"])
-    stats.pack(fill="x", padx=24, pady=5)
-    tk.Label(stats,
-             text=f"Blocked: {state['stats']['blocked']}      Cleaned: {state['stats']['cleaned']}",
-             font=("Segoe UI", 10), fg=c["text_sec"], bg=c["bg"],
-             anchor="w").pack(side="left")
+    section(326, "Stats")
+    card_y = 358
+    canvas.create_image(28, card_y, anchor="nw",
+                        image=photo(_card_image(WIN_W - 56, 50)))
+    canvas.create_image(44, card_y + 15, anchor="nw",
+                        image=photo(_icon_image("chart", 20, SETTINGS_LAV)))
+    canvas.create_text(74, card_y + 14, text=f"Blocked:  {state['stats']['blocked']}",
+                       fill=SETTINGS_TEXT, font=("Segoe UI", 11, "bold"), anchor="nw")
+    canvas.create_line(252, card_y + 13, 252, card_y + 37, fill="#35353f", width=1)
+    canvas.create_image(270, card_y + 15, anchor="nw",
+                        image=photo(_icon_image("check", 20, SETTINGS_LAV)))
+    canvas.create_text(300, card_y + 14, text=f"Cleaned:  {state['stats']['cleaned']}",
+                       fill=SETTINGS_TEXT, font=("Segoe UI", 11, "bold"), anchor="nw")
 
-    tk.Frame(win, height=1, bg=c["border"]).pack(fill="x", padx=24, pady=(18, 0))
+    # ---- Footer ----
+    ft_y = 432
+    s = pill(28, ft_y, "View Log", SETTINGS_PILL, lambda: os.startfile(LOG_FILE),
+             icon_kind="doc", icon_color=SETTINGS_SUB, height=40)
+    quit_w = _pill_image("Quit App", SETTINGS_BLUE, "#ffffff", height=40, bold=True,
+                         icon_kind="exit").size[0]
+    pill(WIN_W - 28 - quit_w, ft_y, "Quit App", SETTINGS_BLUE,
+         lambda: on_quit(state["icon"], None), icon_kind="exit", bold=True, height=40)
 
-    footer = tk.Frame(win, bg=c["bg"])
-    footer.pack(fill="x", padx=24, pady=(14, 20))
-    tk.Button(footer, text="View Log", command=lambda: os.startfile(LOG_FILE),
-              font=("Segoe UI", 9), bg=c["btn"], fg=c["btn_fg"],
-              activebackground=c["border"], activeforeground=c["btn_fg"],
-              relief="flat", padx=14, pady=5, bd=0, cursor="hand2").pack(side="left")
-    tk.Button(footer, text="Quit App", command=lambda: on_quit(state["icon"], None),
-              font=("Segoe UI", 9, "bold"), bg=c["danger"], fg="#ffffff",
-              activebackground="#a93226", activeforeground="#ffffff",
-              relief="flat", padx=14, pady=5, bd=0, cursor="hand2").pack(side="right")
-
-    win.protocol("WM_DELETE_WINDOW", win.destroy)
+    win.protocol("WM_DELETE_WINDOW", close_win)
+    win.bind("<Escape>", lambda e: close_win())
     root.wait_window(win)
     root.destroy()
 
