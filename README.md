@@ -16,9 +16,11 @@ A small Windows tray app that watches your clipboard for two things. Shell comma
 
 Two tiers, so it catches real payloads without flagging prose.
 
-Tier 1 patterns fire on their own: `cmd /c`, `powershell -flag`, `iex`, `Invoke-WebRequest`, `DownloadString`, `curl https://`, `reg add HKEY`, base64 payloads next to a known executor, and dynamic invocation like `& ($var)`.
+Tier 1 fires on its own: `cmd /c`, `powershell`/`pwsh -flag`, `-enc`/`-e` base64 payloads, `Invoke-WebRequest`/`irm` to an `https://` URL, `Invoke-Expression`, `DownloadString`, `curl` with an `https://` URL, `reg add HKEY`/`HKCU`/`HKLM`, `bash -c`, `certutil` fetch/decode, `bitsadmin` transfer, `net user`/`localgroup` add/delete/reset, `Start-Process`, `New-Object System.Net.WebClient`, and dynamic invocation like `& ($var)`. The `cmd`, `powershell`/`pwsh`, and `reg add` patterns must start the line, so prose mentioning them mid-sentence does not fire. Flags and quoted arguments are tolerated between the executor and the URL, so `curl -L`, `iwr -uri`, and `certutil "-urlcache ..."` are caught.
 
 Tier 2 needs a tool name plus a shell signal. `mshta`, `rundll32`, `certutil`, `wmic`, and friends only trigger when followed by a flag, URL, pipe, or script extension. So "I read a blog post about mshta and rundll32 today" passes through clean.
+
+This is a speed bump, not a security boundary. A determined attacker can reword a payload past these patterns; PasteGuard warns, it does not prove what a command does.
 
 ## SmartScreen
 
@@ -46,10 +48,7 @@ python clipboard_defanger.py
 
 Right-click the tray icon:
 
-- Stats. Threats blocked and URLs cleaned, persisted across restarts.
-- Silent mode. Kills command payloads without a dialog.
-- Notifications. Toggle the tray popup on URL cleans.
-- View log. Opens `~/pasteguard.log`.
+- Settings. Opens the settings window. It holds everything: silent mode (kill command payloads without a dialog), notifications (toggle the tray popup on URL cleans), start with Windows, stats (threats blocked and URLs cleaned, persisted across restarts), and a view-log button.
 - Quit.
 
 ## License

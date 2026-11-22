@@ -1,5 +1,6 @@
 import re
 import json
+import copy
 import threading
 import tkinter as tk
 import winreg
@@ -32,14 +33,14 @@ def load_config():
     try:
         with open(CONFIG_FILE, "r") as f:
             saved = json.load(f)
-        config = DEFAULT_STATE.copy()
+        config = copy.deepcopy(DEFAULT_STATE)
         config["silent_mode"]      = saved.get("silent_mode", DEFAULT_STATE["silent_mode"])
         config["notifications"]    = saved.get("notifications", DEFAULT_STATE["notifications"])
         config["stats"]["blocked"] = saved.get("stats", {}).get("blocked", 0)
         config["stats"]["cleaned"] = saved.get("stats", {}).get("cleaned", 0)
         return config
     except Exception:
-        return DEFAULT_STATE.copy()
+        return copy.deepcopy(DEFAULT_STATE)
 
 def save_config():
     try:
@@ -120,46 +121,47 @@ TRACKING_PARAMS_SET = {
 # Tier 2: tool name + shell signal required, prevents false positives
 #         when tool names appear in prose or documentation.
 
+# Anchored to line start so prose mentioning these tools mid-sentence does not fire.
 TIER1_PATTERNS = [
-    (r"cmd(?:\.exe)?\s*/[cCkK]",                                "CMD /c"),
-    (r"powershell(?:\.exe)?\s+-\w",                             "PowerShell"),
-    (r"-enc(?:odedcommand)?\s+[A-Za-z0-9+/=]{20,}",            "Encoded PowerShell command"),
-    (r"Invoke-WebRequest|iwr\s+https?://",                      "Invoke-WebRequest"),
-    (r"Invoke-RestMethod|irm\s+https?://",                      "Invoke-RestMethod"),
-    (r"\biex\b|Invoke-Expression",                              "Invoke-Expression"),
-    (r"DownloadString|DownloadFile",                            "WebClient download"),
-    (r"&\s*\(\s*\$",                                            "Dynamic invocation"),
-    (r"curl\s+https?://",                                       "curl download"),
-    (r"reg\s+add\s+HKEY",                                       "Registry write"),
-    (r"bash\s+-c\s+[\"'$\{]",                                   "Bash (WSL)"),
-    (r"certutil\s+(?:-urlcache|-decode|-encode|/urlcache)",     "Certutil fetch/decode"),
-    (r"bitsadmin\s+(?:/transfer|/create|/addfile)",             "BitsAdmin transfer"),
+    (r"^\s*cmd(?:\.exe)?\s+/[cCkK](?=\s|$)",                "CMD /c"),
+    (r"^\s*(?:powershell|pwsh)(?:\.exe)?\s+-\w",             "PowerShell"),
+    (r"-(?:enc(?:odedcommand)?|e)\s+[A-Za-z0-9+/=]{20,}",     "Encoded PowerShell command"),
+    (r"(?:Invoke-WebRequest|iwr)\b[^\n]{0,80}?[\"']?https?://", "Invoke-WebRequest"),
+    (r"(?:Invoke-RestMethod|irm)\b[^\n]{0,80}?[\"']?https?://", "Invoke-RestMethod"),
+    (r"\biex\b|Invoke-Expression",                           "Invoke-Expression"),
+    (r"DownloadString|DownloadFile",                         "WebClient download"),
+    (r"&\s*\(\s*\$",                                         "Dynamic invocation"),
+    (r"\bcurl(?:\.exe)?\b[^\n]*?[\"']?https?://",            "curl download"),
+    (r"^\s*reg(?:\.exe)?\s+add\s+(?:HKEY|HKCU|HKLM|HKCR|HKU|HKCC)", "Registry write"),
+    (r"bash\s+-c\s+[\"'$\{]",                                 "Bash (WSL)"),
+    (r"certutil(?:\.exe)?[^\n]{0,40}(?:-urlcache|-decode|-encode|/urlcache)", "Certutil fetch/decode"),
+    (r"bitsadmin\s+(?:/transfer|/create|/addfile)",           "BitsAdmin transfer"),
     (r"\bnet\s+(?:user|localgroup)\b[^\n|;&]{0,80}/(?:add|delete|reset)\b",
                                                                 "Net user/group"),
     (r"Start-Process\s+(?:-FilePath\s+\S+|\S+\.(?:exe|bat|cmd|ps1|vbs|msi)\b"
-       r"|powershell|cmd|mshta|wscript|cscript|rundll32|certutil|bitsadmin)",
+       r"|powershell|pwsh|cmd|mshta|wscript|cscript|rundll32|certutil|bitsadmin)",
                                                                 "Start-Process"),
     (r"New-Object\s+(?:-TypeName\s+)?(?:System\.)?Net\.(?:WebClient|TcpClient)",
                                                                 "WebClient/TcpClient object"),
-    (r"(?:powershell|mshta|cmd|wscript|cscript|rundll32)[^\n]{0,60}[A-Za-z0-9+/]{60,}={0,2}",
+    (r"(?:powershell|pwsh|mshta|cmd|wscript|cscript|rundll32)[^\n]{0,60}[A-Za-z0-9+/]{60,}={0,2}",
                                                                 "Base64 payload"),
 ]
 
-_SHELL_TOOLS = r"(?:mshta|msiexec|rundll32|certutil|wscript|cscript|wmic|regsvr32|bitsadmin|schtasks|powershell|cmd)"
+_SHELL_TOOLS = r"(?:mshta|msiexec|rundll32|certutil|wscript|cscript|wmic|regsvr32|bitsadmin|schtasks)"  # cmd/powershell/pwsh are handled by anchored tier-1 patterns
 _SHELL_SIGNAL = (
     r"(?:"
     r"\s*[|&;]\s*"
-    r"|\s+https?://"
+    r"|\s+[\"']?https?://"
     r"|\s+-\w"
     r"|\s+//?\w"
     r"|\s+\$\w"
     r"|\s+vbscript:"
     r"|\s+javascript:"
-    r"|\s+\S+\.(?:dll|vbs|js|hta|bat|ps1|cmd|exe)\b"
+    r"|\s+[\"']?\S+\.(?:dll|vbs|js|hta|bat|ps1|cmd|exe)\b"
     r")"
 )
 
-COMPILED_TIER1 = [(re.compile(p, re.IGNORECASE), l) for p, l in TIER1_PATTERNS]
+COMPILED_TIER1 = [(re.compile(p, re.IGNORECASE | re.MULTILINE), l) for p, l in TIER1_PATTERNS]
 COMPILED_TIER2 = re.compile(_SHELL_TOOLS + r"(?:\.exe)?" + _SHELL_SIGNAL, re.IGNORECASE)
 
 def detect_command(text):
@@ -183,12 +185,14 @@ def clean_url(text):
         parsed = urlparse(text)
         if not parsed.query:
             return None
+        # Tolerate HTML-escaped separators (&amp;) when copying links from web pages.
+        query = parsed.query.replace("&amp;", "&")
         kept, removed = [], set()
-        for segment in parsed.query.split("&"):
+        for segment in query.split("&"):
             if not segment:
                 continue
             key = unquote(segment.split("=", 1)[0])
-            if key in TRACKING_PARAMS_SET:
+            if key in TRACKING_PARAMS_SET or key.startswith("ref_"):
                 removed.add(key)
             else:
                 kept.append(segment)
@@ -213,16 +217,22 @@ def notify_tray(title, message):
 # --- System theme ---
 
 def is_dark_mode():
+    key = None
     try:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
         )
         value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-        winreg.CloseKey(key)
         return value == 0
     except Exception:
         return True  # default to dark
+    finally:
+        if key is not None:
+            try:
+                winreg.CloseKey(key)
+            except Exception:
+                pass
 
 # --- Windows 11 rounded corners ---
 

@@ -1,5 +1,5 @@
 #define MyAppName "Sekura PasteGuard"
-#define MyAppVersion "2.3"
+#define MyAppVersion "2.4.0"
 #define MyAppPublisher "Sekura"
 #define MyAppURL "https://sekura.se"
 #define MyAppExeName "PasteGuard.exe"
@@ -13,7 +13,7 @@ AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\Sekura\PasteGuard
 DefaultGroupName={#MyAppName}
 OutputDir=.\installer_output
-OutputBaseFilename=SekuraPasteGuard_Setup_v2.3
+OutputBaseFilename=SekuraPasteGuard_Setup_v2.4.0
 SetupIconFile=clipboard-x.512.ico
 Compression=lzma
 SolidCompression=yes
